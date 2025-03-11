@@ -1,9 +1,16 @@
 import { useEffect, useState, useRef } from 'react';
 import jsQR from 'jsqr';
 import Button from './widgets/Button';
+import Modal from './widgets/Moda';
 
 function App() {
   const [isShowCamera, setIsShowCamera] = useState(false);
+  const [isShowInvoiceModal, setIsShowInvoiceModal] = useState(false);
+
+  const [invoiceNumber, setInvoiceNumber] = useState('');
+  const [invoiceDate, setInvoiceDate] = useState('');
+  const [randomCode, setRandomCode] = useState('');
+
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const intervalRef = useRef<number | null>(null);
@@ -23,31 +30,23 @@ function App() {
       videoRef.current.srcObject = deviceStream;
     }
 
-    // 初始化 canvas，並設定 willReadFrequently
-    // 因為會不斷讀取畫面，willReadFrequently 可以幫助提升效能
     const canvas = canvasRef.current as HTMLCanvasElement;
     const ctx = canvas.getContext('2d', {
       willReadFrequently: true,
     }) as CanvasRenderingContext2D;
 
-    // 使用 interval 持續性處理資料，以 0.1 秒為單位
-    // 有測試過 1 或 0.5，但發現太頻繁頁面會爆
     intervalRef.current = setInterval(() => {
-      // 設定 canvas 和 video 同大小，並將 video 拿到的畫面丟上去
       if (videoRef.current) {
         canvas.width = videoRef.current.videoWidth;
         canvas.height = videoRef.current.videoHeight;
         ctx.drawImage(videoRef.current, 0, 0);
       }
 
-      // 將 canvas 畫面轉為圖片，並提供給 jsQR 做解析
       const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
       const code = jsQR(imageData.data, imageData.width, imageData.height);
 
       if (code) {
         const { location } = code;
-
-        // 如果沒有取得 QRCode 的位置資訊，就不繼續執行
         if (!location) return;
 
         // 畫出 QRCode 的邊框
@@ -61,7 +60,24 @@ function App() {
         ctx.closePath();
         ctx.stroke();
 
-        // ...some code，針對解析出來的資料做處理
+        const { data } = code;
+        // 電子發票格式：2 個大寫英文字母 + 8 個數字
+        const invoiceRegex = /^[A-Z]{2}\d{8}.*$/;
+        const isInvoice = invoiceRegex.test(data);
+        if (!isInvoice) return;
+
+        const rawInvoiceNumber = data.substring(0, 10);
+        const rawInvoiceDate = data.substring(10, 17);
+        const rawRandomCode = data.substring(17, 21);
+
+        const year = rawInvoiceDate.substring(0, 3);
+        const month = rawInvoiceDate.substring(3, 5);
+        const day = rawInvoiceDate.substring(5, 7);
+
+        setInvoiceNumber(rawInvoiceNumber);
+        setInvoiceDate(`${year}/${month}/${day}`);
+        setRandomCode(rawRandomCode);
+        setIsShowInvoiceModal(true);
 
         // 清除資料、暫停相機
         clearInterval(intervalRef.current as number);
@@ -96,19 +112,30 @@ function App() {
       <div className='w-full min-h-screen flex flex-col justify-center items-center'>
         <h1 className='text-4xl mb-8'>Scan Scan</h1>
 
-        <video
-          ref={videoRef}
-          autoPlay
-          playsInline
-          style={{ display: `${isShowCamera ? 'block' : 'none'}` }}
-        >
+        <video ref={videoRef} autoPlay playsInline style={{ display: 'none' }}>
           <track kind='captions' />
         </video>
-        <canvas ref={canvasRef} style={{ display: 'none' }} />
+        <canvas
+          ref={canvasRef}
+          style={{ display: `${isShowCamera ? 'block' : 'none'}` }}
+        />
 
-        <Button onClick={handleCameraOpen}>開始掃描</Button>
-        <Button onClick={handleCameraClose}>關閉相機</Button>
+        <Button onClick={handleCameraOpen} variant='solid'>
+          開始掃描
+        </Button>
+        <Button onClick={handleCameraClose} variant='outline'>
+          關閉相機
+        </Button>
       </div>
+
+      <Modal
+        isShow={isShowInvoiceModal}
+        invoiceNumber={invoiceNumber}
+        invoiceDate={invoiceDate}
+        randomCode={randomCode}
+        onCancel={() => setIsShowInvoiceModal(false)}
+        onConfirm={() => setIsShowInvoiceModal(false)}
+      />
     </>
   );
 }
